@@ -1,0 +1,38 @@
+# Dependencies and generated outputs
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.gradle/
+.idea/
+build/
+artifacts/
+*.apk
+*.aab
+*.ap_
+*.zip
+*.log
+
+# Local runtime data and credentials
+.env
+.env.*
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+keystore.properties
+local.properties
+
+# Capacitor regenerates these on the build runner
+mobile/www/
+mobile/build-info.json
+mobile/android/capacitor-cordova-android-plugins/
+mobile/android/app/src/main/assets/
+mobile/android/app/src/main/res/xml/config.xml

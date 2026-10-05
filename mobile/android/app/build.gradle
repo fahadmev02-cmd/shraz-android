@@ -1,0 +1,91 @@
+apply plugin: 'com.android.application'
+
+def shrazSettings = new groovy.json.JsonSlurper().parse(file('../../mobile.settings.json'))
+def uploadStore = System.getenv('SHRAZ_KEYSTORE_PATH')
+def uploadStorePassword = System.getenv('SHRAZ_KEYSTORE_PASSWORD')
+def uploadAlias = System.getenv('SHRAZ_KEY_ALIAS')
+def uploadKeyPassword = System.getenv('SHRAZ_KEY_PASSWORD')
+def hasUploadKey = [uploadStore, uploadStorePassword, uploadAlias, uploadKeyPassword].every { it }
+
+android {
+    namespace = "com.shraz.flexibledieting"
+    compileSdk = rootProject.ext.compileSdkVersion
+    buildToolsVersion '36.0.0'
+    defaultConfig {
+        applicationId shrazSettings.appId
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode (shrazSettings.versionCode as int)
+        versionName shrazSettings.versionName
+        manifestPlaceholders = [shrazAppName: shrazSettings.appName]
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            if (hasUploadKey) {
+                storeFile file(uploadStore)
+                storePassword uploadStorePassword
+                keyAlias uploadAlias
+                keyPassword uploadKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+tasks.register('validateShrazRelease') {
+    doLast {
+        if (!hasUploadKey) throw new GradleException('Release signing is not configured. Supply the four SHRAZ signing settings through a secure build environment.')
+        if (!file(uploadStore).isFile()) throw new GradleException('The configured upload keystore file is missing.')
+        def infoFile = file('../../build-info.json')
+        if (!infoFile.isFile()) throw new GradleException('Run the mobile release build script to prepare the assets first.')
+        def info = new groovy.json.JsonSlurper().parse(infoFile)
+        if (!info.backendConfigured || !info.releaseValidated) throw new GradleException('Release assets require a configured HTTPS backend and release validation.')
+        if (info.appId != shrazSettings.appId || info.versionCode != shrazSettings.versionCode || info.versionName != shrazSettings.versionName) {
+            throw new GradleException('Prepared assets do not match the current application identity/version. Prepare them again.')
+        }
+    }
+}
+tasks.configureEach { task ->
+    if (task.name == 'preReleaseBuild') task.dependsOn('validateShrazRelease')
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

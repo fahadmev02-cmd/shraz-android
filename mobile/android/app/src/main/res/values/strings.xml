@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Shraz</string>
+    <string name="title_activity_main">Shraz</string>
+    <string name="package_name">com.shraz.flexibledieting</string>
+    <string name="custom_url_scheme">com.shraz.flexibledieting</string>
+</resources>

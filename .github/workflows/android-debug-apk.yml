@@ -1,0 +1,100 @@
+name: Build Shraz Debug APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend_url:
+        description: Optional HTTPS backend origin; blank builds a configuration-only shell
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shraz-debug-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  debug-apk:
+    name: Compile and verify debug APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      SHRAZ_BACKEND_URL: ${{ inputs.backend_url || vars.SHRAZ_BACKEND_URL }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Set up Python for verification
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up JDK 21 on the GitHub runner
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK on the GitHub runner
+        uses: android-actions/setup-android@v3
+
+      - name: Install required SDK packages on the GitHub runner
+        run: sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+
+      - name: Recreate web assets and validate the clean checkout
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+          npm run android:sync
+          npm run check
+
+      - name: Run existing backend regression tests
+        working-directory: .
+        run: python -m unittest -v test_app
+
+      - name: Build and verify the actual debug APK
+        run: |
+          npm run build:apk
+          python scripts/verify-debug-apk.py
+
+      - name: Upload verified APK and verification report
+        uses: actions/upload-artifact@v4
+        with:
+          name: shraz-debug-apk-${{ github.run_number }}
+          path: |
+            mobile/android/app/build/outputs/apk/debug/app-debug.apk
+            mobile/artifacts/debug-apk-verification.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Summarize verified build
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          report = json.loads(Path('artifacts/debug-apk-verification.json').read_text())
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+              summary.write('## Shraz debug APK generated and verified\n\n')
+              summary.write(f"- Application ID: `{report['application_id']}`\n")
+              summary.write(f"- Version: `{report['version_name']}` / code `{report['version_code']}`\n")
+              summary.write(f"- APK SHA-256: `{report['sha256']}`\n")
+              if report['backend_configured']:
+                  summary.write('- Backend origin was configured. Network and device behavior still require testing.\n')
+              else:
+                  summary.write('- **No backend configured: this APK is a configuration-only shell. Login and coaching features will not work yet.**\n')
+              summary.write('- Download the `shraz-debug-apk` artifact from this run and extract `app-debug.apk`.\n')
+              summary.write('- This is a debug APK, not a Play Store release AAB.\n')
+          PY
